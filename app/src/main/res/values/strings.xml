@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vocal Remover</string>
+
+    <string name="action_start">Start</string>
+    <string name="action_stop">Stop</string>
+
+    <string name="status_idle">Tap Start, then pick an app to capture.</string>
+    <string name="status_starting">Starting capture…</string>
+    <string name="status_running">Capturing audio — vocals isolated.</string>
+    <string name="status_running_source">Capturing: %1$s</string>
+    <string name="status_stopping">Stopping…</string>
+    <string name="status_error">Error: %1$s</string>
+
+    <string name="error_no_record_permission">Microphone permission is required to capture audio.</string>
+
+    <string name="notification_channel_name">Audio capture</string>
+    <string name="notification_channel_desc">Shown while capturing and processing audio.</string>
+</resources>
