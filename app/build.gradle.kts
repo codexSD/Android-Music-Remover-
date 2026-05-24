@@ -17,6 +17,18 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    // Per-ABI APKs so a device only downloads the native code it can run.
+    // libonnxruntime.so dominates the APK, so this is the main size lever. The
+    // include list omits x86, trimming a 32-bit libonnxruntime.so we never run.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -25,6 +37,14 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+    }
+
+    packaging {
+        jniLibs {
+            // We use ONNX Runtime's C++ API directly; the Java JNI bridge lib is
+            // dead weight.
+            excludes += "**/libonnxruntime4j_jni.so"
         }
     }
 
