@@ -6,6 +6,7 @@ plugins {
 android {
     namespace = "com.codexsd.vocalremover.audio"
     compileSdk = libs.versions.compileSdk.get().toInt()
+    ndkVersion = "26.3.11579264"
 
     defaultConfig {
         minSdk = libs.versions.minSdk.get().toInt()

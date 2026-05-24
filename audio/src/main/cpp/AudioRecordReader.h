@@ -48,8 +48,7 @@ private:
     jmethodID stopMethod_ = nullptr;
 
     const int channelCount_;
-    const int chunkFrames_;
-    const int transferFloats_;  // chunkFrames_ * channelCount_
+    const int transferFloats_;  // chunkFrames * channelCount
 
     SpscRingBuffer<float>* output_;
     std::vector<float> scratch_;  // native copy target

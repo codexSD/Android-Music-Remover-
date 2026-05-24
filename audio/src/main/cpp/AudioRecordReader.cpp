@@ -16,7 +16,6 @@ AudioRecordReader::AudioRecordReader(JNIEnv* env, jobject audioRecord,
                                      int channelCount, int chunkFrames,
                                      SpscRingBuffer<float>* output)
     : channelCount_(channelCount),
-      chunkFrames_(chunkFrames),
       transferFloats_(chunkFrames * channelCount),
       output_(output) {
     audioRecordGlobal_ = env->NewGlobalRef(audioRecord);
