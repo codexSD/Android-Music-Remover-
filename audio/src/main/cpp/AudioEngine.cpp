@@ -2,23 +2,52 @@
 
 #include "Log.h"
 #include "PassthroughProcessor.h"
+#include "SpectrogramProcessor.h"
+
+#ifdef USE_ONNXRUNTIME
+#include "OnnxSeparator.h"
+#endif
 
 namespace vocalremover {
 
 namespace {
-// Number of frames requested per AudioRecord.read(). ~21ms at 48kHz; small
-// enough to keep latency low, large enough to amortize the JNI call.
+// Number of frames requested per AudioRecord.read(). ~21ms at 48kHz.
 constexpr int kCaptureChunkFrames = 1024;
 
-// Standing ring-buffer capacity target. 200ms absorbs scheduling jitter
-// between the capture thread and the output callback without adding much
-// latency (the buffer self-regulates near the capture chunk size).
+// Processing-thread block size. ~10ms at 48kHz; small enough to keep latency
+// low, large enough to amortize per-block overhead.
+constexpr size_t kProcessBlockFrames = 512;
+
+// STFT parameters for the separator (Phase 1 plan 2.2).
+constexpr size_t kFftSize = 2048;
+constexpr size_t kHop = 512;
+
+// Standing capacity per ring. 200ms absorbs scheduling jitter between the
+// capture, processing, and output stages without adding much latency.
 constexpr double kRingCapacitySeconds = 0.2;
 
 size_t nextPowerOfTwo(size_t v) {
     size_t p = 1;
     while (p < v) p <<= 1;
     return p;
+}
+
+std::unique_ptr<AudioProcessor> createProcessor(const uint8_t* modelData,
+                                                size_t modelLen) {
+    if (modelData != nullptr && modelLen > 0) {
+#ifdef USE_ONNXRUNTIME
+        auto separator = OnnxSeparator::create(modelData, modelLen);
+        if (separator) {
+            VR_LOGI("Using ONNX spectrogram separator");
+            return std::make_unique<SpectrogramProcessor>(kFftSize, kHop,
+                                                          std::move(separator));
+        }
+        VR_LOGW("ONNX model failed to load; falling back to passthrough");
+#else
+        VR_LOGW("Model supplied but ONNX support not compiled in; passthrough");
+#endif
+    }
+    return std::make_unique<PassthroughProcessor>();
 }
 }  // namespace
 
@@ -31,7 +60,7 @@ size_t AudioEngine::ringCapacityFor(int sampleRate, int channelCount) {
 }
 
 bool AudioEngine::start(JNIEnv* env, jobject audioRecord, int sampleRate,
-                        int channelCount) {
+                        int channelCount, const uint8_t* modelData, size_t modelLen) {
     if (running_) {
         VR_LOGW("AudioEngine.start ignored: already running");
         return false;
@@ -39,23 +68,34 @@ bool AudioEngine::start(JNIEnv* env, jobject audioRecord, int sampleRate,
     sampleRate_ = sampleRate;
     channelCount_ = channelCount;
 
-    ring_ = std::make_unique<SpscRingBuffer<float>>(
-        ringCapacityFor(sampleRate, channelCount));
-    processor_ = std::make_unique<PassthroughProcessor>();
+    const size_t cap = ringCapacityFor(sampleRate, channelCount);
+    ringIn_ = std::make_unique<SpscRingBuffer<float>>(cap);
+    ringOut_ = std::make_unique<SpscRingBuffer<float>>(cap);
 
-    output_ = std::make_unique<OutputStream>(sampleRate, channelCount, ring_.get(),
-                                             processor_.get());
+    processor_ = createProcessor(modelData, modelLen);
+    processor_->prepare(sampleRate, channelCount);
+
+    output_ = std::make_unique<OutputStream>(sampleRate, channelCount, ringOut_.get());
     if (!output_->open()) {
         VR_LOGE("AudioEngine.start: output open failed");
         stop();
         return false;
     }
 
+    processing_ = std::make_unique<ProcessingThread>(
+        ringIn_.get(), ringOut_.get(), processor_.get(), channelCount,
+        kProcessBlockFrames);
+
     reader_ = std::make_unique<AudioRecordReader>(env, audioRecord, channelCount,
-                                                  kCaptureChunkFrames, ring_.get());
+                                                  kCaptureChunkFrames, ringIn_.get());
 
     if (!output_->start()) {
         VR_LOGE("AudioEngine.start: output start failed");
+        stop();
+        return false;
+    }
+    if (!processing_->start()) {
+        VR_LOGE("AudioEngine.start: processing thread failed to start");
         stop();
         return false;
     }
@@ -71,9 +111,14 @@ bool AudioEngine::start(JNIEnv* env, jobject audioRecord, int sampleRate,
 }
 
 void AudioEngine::stop() {
+    // Tear down in pipeline order: stop feeding, stop processing, stop draining.
     if (reader_) {
         reader_->stop();
         reader_.reset();
+    }
+    if (processing_) {
+        processing_->stop();
+        processing_.reset();
     }
     if (output_) {
         output_->stop();
@@ -81,7 +126,8 @@ void AudioEngine::stop() {
         output_.reset();
     }
     processor_.reset();
-    ring_.reset();
+    ringIn_.reset();
+    ringOut_.reset();
     running_ = false;
 }
 

@@ -27,11 +27,19 @@ class AudioEngine {
      * @param audioRecord an AudioRecord configured for [AudioFormatSpec] (PCM
      *   float, [sampleRate], [channelCount]). Ownership of start/stop is handed
      *   to native code; the caller must not also call startRecording()/stop().
+     * @param model raw bytes of an ONNX separation model, or null for
+     *   passthrough. When provided and ONNX support is available, the engine
+     *   runs the spectrogram separator; otherwise it falls back to passthrough.
      */
-    fun start(audioRecord: AudioRecord, sampleRate: Int, channelCount: Int): Boolean {
+    fun start(
+        audioRecord: AudioRecord,
+        sampleRate: Int,
+        channelCount: Int,
+        model: ByteArray? = null,
+    ): Boolean {
         check(handle != 0L) { "AudioEngine already released" }
         if (running) return false
-        running = nativeStart(handle, audioRecord, sampleRate, channelCount)
+        running = nativeStart(handle, audioRecord, sampleRate, channelCount, model)
         return running
     }
 
@@ -69,6 +77,7 @@ class AudioEngine {
         audioRecord: AudioRecord,
         sampleRate: Int,
         channelCount: Int,
+        model: ByteArray?,
     ): Boolean
 
     private external fun nativeStop(handle: Long)

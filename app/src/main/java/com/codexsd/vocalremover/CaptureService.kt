@@ -143,6 +143,7 @@ class CaptureService : Service() {
             record,
             AudioFormatSpec.SAMPLE_RATE,
             AudioFormatSpec.CHANNEL_COUNT,
+            loadModelAsset(),
         )
         if (!started) {
             failAndStop("Native engine failed to start")
@@ -150,6 +151,22 @@ class CaptureService : Service() {
         }
         Log.i(TAG, "Capture engine started")
         return true
+    }
+
+    /**
+     * Loads the bundled ONNX separation model from assets, or returns null if
+     * it is absent (the engine then runs passthrough). Kept small/simple: the
+     * model is read fully into memory and handed to ONNX Runtime, which copies
+     * it into the session.
+     */
+    private fun loadModelAsset(): ByteArray? = try {
+        assets.open(MODEL_ASSET).use { it.readBytes() }
+    } catch (e: java.io.FileNotFoundException) {
+        Log.i(TAG, "No model asset ($MODEL_ASSET); running passthrough")
+        null
+    } catch (e: java.io.IOException) {
+        Log.w(TAG, "Failed to read model asset", e)
+        null
     }
 
     private fun stopCapture() {
@@ -240,6 +257,7 @@ class CaptureService : Service() {
         private const val TAG = "CaptureService"
         private const val CHANNEL_ID = "capture"
         private const val NOTIFICATION_ID = 1001
+        private const val MODEL_ASSET = "bandscnet.onnx"
 
         const val ACTION_START = "com.codexsd.vocalremover.action.START"
         const val ACTION_STOP = "com.codexsd.vocalremover.action.STOP"

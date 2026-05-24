@@ -7,11 +7,8 @@
 namespace vocalremover {
 
 OutputStream::OutputStream(int sampleRate, int channelCount,
-                           SpscRingBuffer<float>* input, AudioProcessor* processor)
-    : sampleRate_(sampleRate),
-      channelCount_(channelCount),
-      input_(input),
-      processor_(processor) {}
+                           SpscRingBuffer<float>* input)
+    : sampleRate_(sampleRate), channelCount_(channelCount), input_(input) {}
 
 OutputStream::~OutputStream() { close(); }
 
@@ -36,12 +33,9 @@ bool OutputStream::open() {
     }
 
     // The device may grant a different rate/sharing mode than requested; adopt
-    // whatever was actually negotiated so the processor is prepared correctly.
+    // whatever was actually negotiated for logging/diagnostics.
     sampleRate_ = stream_->getSampleRate();
     channelCount_ = stream_->getChannelCount();
-    if (processor_ != nullptr) {
-        processor_->prepare(sampleRate_, channelCount_);
-    }
     VR_LOGI("Output stream open: rate=%d ch=%d sharing=%d frames/burst=%d",
             sampleRate_, channelCount_,
             static_cast<int>(stream_->getSharingMode()),
@@ -85,10 +79,6 @@ oboe::DataCallbackResult OutputStream::onAudioReady(oboe::AudioStream* /*stream*
         std::memset(out + got, 0, (requested - got) * sizeof(float));
         const uint64_t missingFrames = (requested - got) / channelCount_;
         underrunFrames_.fetch_add(missingFrames, std::memory_order_relaxed);
-    }
-
-    if (processor_ != nullptr) {
-        processor_->process(out, static_cast<size_t>(numFrames), channelCount_);
     }
     return oboe::DataCallbackResult::Continue;
 }

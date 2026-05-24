@@ -7,20 +7,19 @@
 #include <cstdint>
 #include <memory>
 
-#include "AudioProcessor.h"
 #include "RingBuffer.h"
 
 namespace vocalremover {
 
 // Oboe-backed low-latency output. Its data callback is the real-time consumer
-// of the ring buffer: it pulls captured frames, runs them through the
-// AudioProcessor, and hands them to the audio device. On underrun it emits
-// silence rather than blocking, keeping the callback real-time safe.
+// of the *output* ring: it pulls already-processed frames and hands them to the
+// audio device. All DSP happens upstream on the processing thread, so this
+// callback only copies — no allocation, no locks, no model work. On underrun it
+// emits silence rather than blocking.
 class OutputStream : public oboe::AudioStreamDataCallback,
                      public oboe::AudioStreamErrorCallback {
 public:
-    OutputStream(int sampleRate, int channelCount, SpscRingBuffer<float>* input,
-                 AudioProcessor* processor);
+    OutputStream(int sampleRate, int channelCount, SpscRingBuffer<float>* input);
     ~OutputStream() override;
 
     bool open();
@@ -43,7 +42,6 @@ private:
     int sampleRate_;
     int channelCount_;
     SpscRingBuffer<float>* input_;
-    AudioProcessor* processor_;
 
     std::shared_ptr<oboe::AudioStream> stream_;
     std::atomic<uint64_t> underrunFrames_{0};

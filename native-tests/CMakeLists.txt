@@ -13,7 +13,11 @@ set(ENGINE_CPP_DIR ${CMAKE_CURRENT_SOURCE_DIR}/../audio/src/main/cpp)
 set(TEST_SOURCES
     test_main.cpp
     RingBufferTest.cpp
-    AudioFormatTest.cpp)
+    AudioFormatTest.cpp
+    FftTest.cpp
+    StftTest.cpp
+    SpectrogramProcessorTest.cpp
+    ${ENGINE_CPP_DIR}/SpectrogramProcessor.cpp)
 
 add_compile_options(-Wall -Wextra)
 
