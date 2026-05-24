@@ -39,6 +39,7 @@ public:
     uint64_t framesCaptured() const;
     uint64_t framesDropped() const;
     uint64_t underrunFrames() const;
+    float captureRms() const;
 
 private:
     static size_t ringCapacityFor(int sampleRate, int channelCount);

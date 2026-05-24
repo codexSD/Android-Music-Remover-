@@ -11,12 +11,16 @@ import android.content.pm.ServiceInfo
 import android.media.AudioFormat
 import android.media.AudioPlaybackCaptureConfiguration
 import android.media.AudioRecord
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -41,10 +45,32 @@ class CaptureService : Service() {
     private var audioRecord: AudioRecord? = null
     private var engine: AudioEngine? = null
 
+    private val healthMonitor = CaptureHealthMonitor()
+    private var lastHealth: CaptureHealth = CaptureHealth.Starting
+
     private val projectionCallback = object : MediaProjection.Callback() {
         override fun onStop() {
             Log.i(TAG, "MediaProjection stopped by system/user")
             stopCapture()
+        }
+    }
+
+    // Routing changes (headphones plugged/unplugged, Bluetooth) are handled by
+    // Oboe's error/reopen path in native code; we just log them here.
+    private val deviceCallback = object : AudioDeviceCallback() {
+        override fun onAudioDevicesAdded(added: Array<out AudioDeviceInfo>?) {
+            Log.i(TAG, "Audio devices added: ${added?.size ?: 0}")
+        }
+
+        override fun onAudioDevicesRemoved(removed: Array<out AudioDeviceInfo>?) {
+            Log.i(TAG, "Audio devices removed: ${removed?.size ?: 0}")
+        }
+    }
+
+    private val healthPoll = object : Runnable {
+        override fun run() {
+            pollHealth()
+            mainHandler.postDelayed(this, POLL_INTERVAL_MS)
         }
     }
 
@@ -93,7 +119,24 @@ class CaptureService : Service() {
             return
         }
 
+        healthMonitor.reset()
+        getSystemService(AudioManager::class.java)
+            .registerAudioDeviceCallback(deviceCallback, mainHandler)
+        mainHandler.postDelayed(healthPoll, POLL_INTERVAL_MS)
         updateNotification(getString(R.string.status_running))
+    }
+
+    private fun pollHealth() {
+        val stats = engine?.stats() ?: return
+        val health = healthMonitor.update(SystemClock.elapsedRealtime(), stats.captureRms)
+        if (health == lastHealth) return
+        lastHealth = health
+        val text = when (health) {
+            is CaptureHealth.Blocked -> getString(R.string.status_blocked)
+            is CaptureHealth.Healthy -> getString(R.string.status_running)
+            is CaptureHealth.Starting -> getString(R.string.status_starting)
+        }
+        updateNotification(text)
     }
 
     private fun startEngine(projection: MediaProjection): Boolean {
@@ -170,6 +213,11 @@ class CaptureService : Service() {
     }
 
     private fun stopCapture() {
+        mainHandler.removeCallbacks(healthPoll)
+        runCatching {
+            getSystemService(AudioManager::class.java)
+                .unregisterAudioDeviceCallback(deviceCallback)
+        }
         engine?.release()
         engine = null
         // Native code already called AudioRecord.stop(); just release it.
@@ -258,6 +306,8 @@ class CaptureService : Service() {
         private const val CHANNEL_ID = "capture"
         private const val NOTIFICATION_ID = 1001
         private const val MODEL_ASSET = "bandscnet.onnx"
+
+        private const val POLL_INTERVAL_MS = 1_000L
 
         const val ACTION_START = "com.codexsd.vocalremover.action.START"
         const val ACTION_STOP = "com.codexsd.vocalremover.action.STOP"

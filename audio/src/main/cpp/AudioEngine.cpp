@@ -143,4 +143,8 @@ uint64_t AudioEngine::underrunFrames() const {
     return output_ ? output_->underrunFrames() : 0;
 }
 
+float AudioEngine::captureRms() const {
+    return reader_ ? reader_->captureRms() : 0.0f;
+}
+
 }  // namespace vocalremover

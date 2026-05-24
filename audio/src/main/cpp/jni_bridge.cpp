@@ -82,3 +82,10 @@ Java_com_codexsd_vocalremover_audio_AudioEngine_nativeUnderrunFrames(
     AudioEngine* engine = toEngine(handle);
     return engine ? static_cast<jlong>(engine->underrunFrames()) : 0;
 }
+
+extern "C" JNIEXPORT jfloat JNICALL
+Java_com_codexsd_vocalremover_audio_AudioEngine_nativeCaptureRms(
+    JNIEnv* /*env*/, jobject /*thiz*/, jlong handle) {
+    AudioEngine* engine = toEngine(handle);
+    return engine ? engine->captureRms() : 0.0f;
+}

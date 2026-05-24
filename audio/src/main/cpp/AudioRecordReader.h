@@ -38,6 +38,10 @@ public:
     uint64_t framesDropped() const { return framesDropped_.load(std::memory_order_relaxed); }
     uint64_t readErrors() const { return readErrors_.load(std::memory_order_relaxed); }
 
+    // RMS of the most recently captured block, in [0, 1]. Used to detect apps
+    // that block capture (they yield continuous silence while media plays).
+    float captureRms() const { return captureRms_.load(std::memory_order_relaxed); }
+
 private:
     void captureLoop();
 
@@ -59,6 +63,7 @@ private:
     std::atomic<uint64_t> framesCaptured_{0};
     std::atomic<uint64_t> framesDropped_{0};
     std::atomic<uint64_t> readErrors_{0};
+    std::atomic<float> captureRms_{0.0f};
 };
 
 }  // namespace vocalremover

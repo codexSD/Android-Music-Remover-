@@ -11,6 +11,7 @@
     <string name="status_running_source">Capturing: %1$s</string>
     <string name="status_stopping">Stopping…</string>
     <string name="status_error">Error: %1$s</string>
+    <string name="status_blocked">This app blocks audio capture.</string>
 
     <string name="error_no_record_permission">Microphone permission is required to capture audio.</string>
 

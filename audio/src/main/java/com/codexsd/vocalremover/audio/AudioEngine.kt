@@ -57,6 +57,7 @@ class AudioEngine {
             framesCaptured = nativeFramesCaptured(handle),
             framesDropped = nativeFramesDropped(handle),
             underrunFrames = nativeUnderrunFrames(handle),
+            captureRms = nativeCaptureRms(handle),
         )
     }
 
@@ -85,6 +86,7 @@ class AudioEngine {
     private external fun nativeFramesCaptured(handle: Long): Long
     private external fun nativeFramesDropped(handle: Long): Long
     private external fun nativeUnderrunFrames(handle: Long): Long
+    private external fun nativeCaptureRms(handle: Long): Float
 
     companion object {
         init {
@@ -98,4 +100,6 @@ data class EngineStats(
     val framesCaptured: Long = 0,
     val framesDropped: Long = 0,
     val underrunFrames: Long = 0,
+    /** RMS of the most recent captured block, in [0, 1]. */
+    val captureRms: Float = 0f,
 )

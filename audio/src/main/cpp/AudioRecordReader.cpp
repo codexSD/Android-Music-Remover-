@@ -2,6 +2,8 @@
 
 #include <pthread.h>
 
+#include <cmath>
+
 #include "JniSupport.h"
 #include "Log.h"
 
@@ -101,6 +103,13 @@ void AudioRecordReader::captureLoop() {
         }
 
         env->GetFloatArrayRegion(transferArrayGlobal_, 0, floatsRead, scratch_.data());
+
+        double sumSq = 0.0;
+        for (jint i = 0; i < floatsRead; ++i) {
+            sumSq += static_cast<double>(scratch_[i]) * scratch_[i];
+        }
+        captureRms_.store(static_cast<float>(std::sqrt(sumSq / floatsRead)),
+                          std::memory_order_relaxed);
 
         const size_t written = output_->write(scratch_.data(),
                                                static_cast<size_t>(floatsRead));
