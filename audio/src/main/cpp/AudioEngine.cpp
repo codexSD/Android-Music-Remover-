@@ -1,12 +1,7 @@
 #include "AudioEngine.h"
 
+#include "EngineRegistry.h"
 #include "Log.h"
-#include "PassthroughProcessor.h"
-#include "SpectrogramProcessor.h"
-
-#ifdef USE_ONNXRUNTIME
-#include "OnnxSeparator.h"
-#endif
 
 namespace vocalremover {
 
@@ -18,10 +13,6 @@ constexpr int kCaptureChunkFrames = 1024;
 // low, large enough to amortize per-block overhead.
 constexpr size_t kProcessBlockFrames = 512;
 
-// STFT parameters for the separator (Phase 1 plan 2.2).
-constexpr size_t kFftSize = 2048;
-constexpr size_t kHop = 512;
-
 // Standing capacity per ring. 200ms absorbs scheduling jitter between the
 // capture, processing, and output stages without adding much latency.
 constexpr double kRingCapacitySeconds = 0.2;
@@ -30,24 +21,6 @@ size_t nextPowerOfTwo(size_t v) {
     size_t p = 1;
     while (p < v) p <<= 1;
     return p;
-}
-
-std::unique_ptr<AudioProcessor> createProcessor(const uint8_t* modelData,
-                                                size_t modelLen) {
-    if (modelData != nullptr && modelLen > 0) {
-#ifdef USE_ONNXRUNTIME
-        auto separator = OnnxSeparator::create(modelData, modelLen);
-        if (separator) {
-            VR_LOGI("Using ONNX spectrogram separator");
-            return std::make_unique<SpectrogramProcessor>(kFftSize, kHop,
-                                                          std::move(separator));
-        }
-        VR_LOGW("ONNX model failed to load; falling back to passthrough");
-#else
-        VR_LOGW("Model supplied but ONNX support not compiled in; passthrough");
-#endif
-    }
-    return std::make_unique<PassthroughProcessor>();
 }
 }  // namespace
 
@@ -60,7 +33,9 @@ size_t AudioEngine::ringCapacityFor(int sampleRate, int channelCount) {
 }
 
 bool AudioEngine::start(JNIEnv* env, jobject audioRecord, int sampleRate,
-                        int channelCount, const uint8_t* modelData, size_t modelLen) {
+                        int channelCount, const std::string& engineId,
+                        const EngineConfig& config, const uint8_t* modelData,
+                        size_t modelLen) {
     if (running_) {
         VR_LOGW("AudioEngine.start ignored: already running");
         return false;
@@ -68,12 +43,27 @@ bool AudioEngine::start(JNIEnv* env, jobject audioRecord, int sampleRate,
     sampleRate_ = sampleRate;
     channelCount_ = channelCount;
 
+    // Build the engine the Kotlin resolver chose. Selection lives in Kotlin; the
+    // registry only constructs. A null/failed result is reported so the resolver
+    // can fall back to the next engine.
+    EngineRegistry registry;
+    registerBuiltinEngines(registry, modelData, modelLen);
+    processor_ = registry.create(engineId, config);
+    if (!processor_) {
+        VR_LOGE("AudioEngine.start: unknown or failed engine '%s'", engineId.c_str());
+        stop();
+        return false;
+    }
+    int latencySamples = 0;
+    if (!processor_->init(sampleRate, channelCount, config, latencySamples)) {
+        VR_LOGE("AudioEngine.start: engine '%s' init failed", engineId.c_str());
+        stop();
+        return false;
+    }
+
     const size_t cap = ringCapacityFor(sampleRate, channelCount);
     ringIn_ = std::make_unique<SpscRingBuffer<float>>(cap);
     ringOut_ = std::make_unique<SpscRingBuffer<float>>(cap);
-
-    processor_ = createProcessor(modelData, modelLen);
-    processor_->prepare(sampleRate, channelCount);
 
     output_ = std::make_unique<OutputStream>(sampleRate, channelCount, ringOut_.get());
     if (!output_->open()) {
@@ -94,7 +84,7 @@ bool AudioEngine::start(JNIEnv* env, jobject audioRecord, int sampleRate,
         stop();
         return false;
     }
-    if (!processing_->start()) {
+    if (!processing_->start(sampleRate)) {
         VR_LOGE("AudioEngine.start: processing thread failed to start");
         stop();
         return false;
@@ -106,7 +96,8 @@ bool AudioEngine::start(JNIEnv* env, jobject audioRecord, int sampleRate,
     }
 
     running_ = true;
-    VR_LOGI("AudioEngine started (processor=%s)", processor_->name());
+    VR_LOGI("AudioEngine started (engine=%s, processor=%s, latency=%d)",
+            engineId.c_str(), processor_->name(), latencySamples);
     return true;
 }
 
@@ -141,6 +132,10 @@ uint64_t AudioEngine::framesDropped() const {
 
 uint64_t AudioEngine::underrunFrames() const {
     return output_ ? output_->underrunFrames() : 0;
+}
+
+uint64_t AudioEngine::deadlineViolations() const {
+    return processing_ ? processing_->deadlineViolations() : 0;
 }
 
 float AudioEngine::captureRms() const {

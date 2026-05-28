@@ -17,7 +17,14 @@ set(TEST_SOURCES
     FftTest.cpp
     StftTest.cpp
     SpectrogramProcessorTest.cpp
-    ${ENGINE_CPP_DIR}/SpectrogramProcessor.cpp)
+    StereoSpectrogramProcessorTest.cpp
+    CenterSeparatorTest.cpp
+    EngineConfigTest.cpp
+    EngineRegistryTest.cpp
+    DeadlineMonitorTest.cpp
+    ${ENGINE_CPP_DIR}/SpectrogramProcessor.cpp
+    ${ENGINE_CPP_DIR}/StereoSpectrogramProcessor.cpp
+    ${ENGINE_CPP_DIR}/EngineRegistry.cpp)
 
 add_compile_options(-Wall -Wextra)
 

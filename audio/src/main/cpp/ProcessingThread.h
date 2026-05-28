@@ -26,17 +26,24 @@ public:
     ProcessingThread(const ProcessingThread&) = delete;
     ProcessingThread& operator=(const ProcessingThread&) = delete;
 
-    bool start();
+    // `sampleRate` sets the per-block wall-clock budget for deadline monitoring.
+    bool start(int sampleRate);
     void stop();
 
     uint64_t framesProcessed() const { return framesProcessed_.load(std::memory_order_relaxed); }
 
+    // Count of sustained-overrun events observed. The Kotlin layer polls this
+    // and, on a new violation, stops and restarts with the next fallback engine.
+    uint64_t deadlineViolations() const {
+        return deadlineViolations_.load(std::memory_order_relaxed);
+    }
+
 private:
-    void run();
+    void run(int sampleRate);
 
     SpscRingBuffer<float>* input_;
     SpscRingBuffer<float>* output_;
-    AudioProcessor* processor_;
+    AudioProcessor* processor_;  // fixed for this thread's lifetime (no hot-swap)
     const int channelCount_;
     const size_t blockFrames_;
     const size_t blockSamples_;
@@ -45,6 +52,7 @@ private:
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::atomic<uint64_t> framesProcessed_{0};
+    std::atomic<uint64_t> deadlineViolations_{0};
 };
 
 }  // namespace vocalremover

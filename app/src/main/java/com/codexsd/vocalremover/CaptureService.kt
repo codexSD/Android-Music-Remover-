@@ -1,5 +1,6 @@
 package com.codexsd.vocalremover
 
+import android.app.ActivityManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -26,6 +27,11 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import com.codexsd.vocalremover.audio.AudioEngine
 import com.codexsd.vocalremover.audio.AudioFormatSpec
+import com.codexsd.vocalremover.audio.DeviceFacts
+import com.codexsd.vocalremover.audio.EngineId
+import com.codexsd.vocalremover.audio.EnginePlan
+import com.codexsd.vocalremover.audio.EngineResolver
+import com.codexsd.vocalremover.audio.FallbackController
 
 /**
  * Foreground service that owns the capture session.
@@ -44,6 +50,10 @@ class CaptureService : Service() {
     private var mediaProjection: MediaProjection? = null
     private var audioRecord: AudioRecord? = null
     private var engine: AudioEngine? = null
+
+    private var modelBytes: ByteArray? = null
+    private var fallback: FallbackController? = null
+    private var activeEngine: EngineId? = null
 
     private val healthMonitor = CaptureHealthMonitor()
     private var lastHealth: CaptureHealth = CaptureHealth.Starting
@@ -115,7 +125,7 @@ class CaptureService : Service() {
         projection.registerCallback(projectionCallback, mainHandler)
         mediaProjection = projection
 
-        if (!startEngine(projection)) {
+        if (!startSession(projection)) {
             return
         }
 
@@ -128,18 +138,101 @@ class CaptureService : Service() {
 
     private fun pollHealth() {
         val stats = engine?.stats() ?: return
+
+        // Automatic fallback: if the active engine can't keep up, stop and
+        // restart with the next engine in the chain (no live swap).
+        if (stats.deadlineViolations > 0) {
+            val next = fallback?.advance()
+            if (next != null) {
+                Log.w(TAG, "Deadline violation; falling back to ${next.id}")
+                restartWith(next)
+                return
+            }
+        }
+
         val health = healthMonitor.update(SystemClock.elapsedRealtime(), stats.captureRms)
         if (health == lastHealth) return
         lastHealth = health
-        val text = when (health) {
-            is CaptureHealth.Blocked -> getString(R.string.status_blocked)
-            is CaptureHealth.Healthy -> getString(R.string.status_running)
-            is CaptureHealth.Starting -> getString(R.string.status_starting)
-        }
-        updateNotification(text)
+        updateNotification(statusTextFor(health))
     }
 
-    private fun startEngine(projection: MediaProjection): Boolean {
+    private fun statusTextFor(health: CaptureHealth): String = when (health) {
+        is CaptureHealth.Blocked -> getString(R.string.status_blocked)
+        is CaptureHealth.Healthy ->
+            activeEngine?.let { getString(R.string.status_running_engine, it.name) }
+                ?: getString(R.string.status_running)
+        is CaptureHealth.Starting -> getString(R.string.status_starting)
+    }
+
+    private fun startSession(projection: MediaProjection): Boolean {
+        val record = buildAudioRecord(projection) ?: return false
+        audioRecord = record
+        modelBytes = loadModelAsset()
+
+        // Selection lives entirely in the resolver; we just walk the chain.
+        val resolver = EngineResolver(
+            override = EnginePreferences.getOverride(this),
+            modelAvailable = modelBytes != null,
+        )
+        val controller = FallbackController(resolver.chain(deviceFacts()))
+
+        engine = AudioEngine()
+        var plan: EnginePlan? = controller.current
+        while (plan != null) {
+            if (tryStart(plan)) {
+                fallback = controller
+                activeEngine = plan.id
+                Log.i(TAG, "Capture engine started with ${plan.id}")
+                return true
+            }
+            Log.w(TAG, "Engine ${plan.id} failed to start; trying next")
+            plan = controller.advance()
+        }
+        failAndStop("No engine could be started")
+        return false
+    }
+
+    private fun tryStart(plan: EnginePlan): Boolean {
+        val rec = audioRecord ?: return false
+        val eng = engine ?: return false
+        if (eng.isRunning) eng.stop()
+        return eng.start(
+            rec,
+            AudioFormatSpec.SAMPLE_RATE,
+            AudioFormatSpec.CHANNEL_COUNT,
+            plan.id.nativeId,
+            plan.params,
+            modelBytes,
+        )
+    }
+
+    // Stops the current pipeline and restarts with `plan`. Reuses the live
+    // MediaProjection/AudioRecord, so no new consent dialog. A brief audio gap
+    // during the change is expected.
+    private fun restartWith(plan: EnginePlan) {
+        healthMonitor.reset()
+        lastHealth = CaptureHealth.Starting
+        if (tryStart(plan)) {
+            activeEngine = plan.id
+            updateNotification(statusTextFor(CaptureHealth.Starting))
+        } else {
+            val next = fallback?.advance()
+            if (next != null) restartWith(next) else failAndStop("All engines failed")
+        }
+    }
+
+    private fun deviceFacts(): DeviceFacts {
+        val am = getSystemService(ActivityManager::class.java)
+        val mem = ActivityManager.MemoryInfo().also { am.getMemoryInfo(it) }
+        return DeviceFacts(
+            cores = Runtime.getRuntime().availableProcessors(),
+            sdkInt = Build.VERSION.SDK_INT,
+            totalRamMb = mem.totalMem / (1024 * 1024),
+            abiSupports64 = Build.SUPPORTED_64_BIT_ABIS.isNotEmpty(),
+        )
+    }
+
+    private fun buildAudioRecord(projection: MediaProjection): AudioRecord? {
         val captureConfig = AudioPlaybackCaptureConfiguration.Builder(projection)
             .addMatchingUsage(AudioAttributesUsage.MEDIA)
             .addMatchingUsage(AudioAttributesUsage.GAME)
@@ -167,33 +260,18 @@ class CaptureService : Service() {
                 .build()
         } catch (e: UnsupportedOperationException) {
             failAndStop("AudioRecord unsupported: ${e.message}")
-            return false
+            return null
         } catch (e: SecurityException) {
             failAndStop("RECORD_AUDIO permission missing")
-            return false
+            return null
         }
 
         if (record.state != AudioRecord.STATE_INITIALIZED) {
             record.release()
             failAndStop("AudioRecord failed to initialize")
-            return false
+            return null
         }
-        audioRecord = record
-
-        val audioEngine = AudioEngine()
-        engine = audioEngine
-        val started = audioEngine.start(
-            record,
-            AudioFormatSpec.SAMPLE_RATE,
-            AudioFormatSpec.CHANNEL_COUNT,
-            loadModelAsset(),
-        )
-        if (!started) {
-            failAndStop("Native engine failed to start")
-            return false
-        }
-        Log.i(TAG, "Capture engine started")
-        return true
+        return record
     }
 
     /**
@@ -228,6 +306,9 @@ class CaptureService : Service() {
             it.stop()
         }
         mediaProjection = null
+        fallback = null
+        activeEngine = null
+        modelBytes = null
 
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()

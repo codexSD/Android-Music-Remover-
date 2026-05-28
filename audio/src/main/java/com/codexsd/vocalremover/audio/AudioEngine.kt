@@ -22,24 +22,36 @@ class AudioEngine {
     val isRunning: Boolean get() = running
 
     /**
-     * Starts capture and low-latency playback. Returns true on success.
+     * Starts capture and low-latency playback with the chosen engine. Returns
+     * true on success, false if the engine is unknown or fails to initialize
+     * (the caller's resolver then tries the next engine in its fallback chain).
+     *
+     * Changing engine at runtime is done by [stop] then [start] again with a new
+     * [engineId]; there is no live swap.
      *
      * @param audioRecord an AudioRecord configured for [AudioFormatSpec] (PCM
      *   float, [sampleRate], [channelCount]). Ownership of start/stop is handed
      *   to native code; the caller must not also call startRecording()/stop().
-     * @param model raw bytes of an ONNX separation model, or null for
-     *   passthrough. When provided and ONNX support is available, the engine
-     *   runs the spectrogram separator; otherwise it falls back to passthrough.
+     * @param engineId native engine id (see [EngineId]): "dsp-center" (default),
+     *   "ml-bandscnet", or "passthrough".
+     * @param config small per-engine tunables (see [EngineId] param keys).
+     * @param model raw bytes of an ONNX model for the ML engine, or null.
      */
     fun start(
         audioRecord: AudioRecord,
         sampleRate: Int,
         channelCount: Int,
+        engineId: String,
+        config: Map<String, String> = emptyMap(),
         model: ByteArray? = null,
     ): Boolean {
         check(handle != 0L) { "AudioEngine already released" }
         if (running) return false
-        running = nativeStart(handle, audioRecord, sampleRate, channelCount, model)
+        val keys = config.keys.toTypedArray()
+        val values = Array(keys.size) { config.getValue(keys[it]) }
+        running = nativeStart(
+            handle, audioRecord, sampleRate, channelCount, engineId, keys, values, model,
+        )
         return running
     }
 
@@ -58,6 +70,7 @@ class AudioEngine {
             framesDropped = nativeFramesDropped(handle),
             underrunFrames = nativeUnderrunFrames(handle),
             captureRms = nativeCaptureRms(handle),
+            deadlineViolations = nativeDeadlineViolations(handle),
         )
     }
 
@@ -78,6 +91,9 @@ class AudioEngine {
         audioRecord: AudioRecord,
         sampleRate: Int,
         channelCount: Int,
+        engineId: String,
+        configKeys: Array<String>,
+        configValues: Array<String>,
         model: ByteArray?,
     ): Boolean
 
@@ -87,6 +103,7 @@ class AudioEngine {
     private external fun nativeFramesDropped(handle: Long): Long
     private external fun nativeUnderrunFrames(handle: Long): Long
     private external fun nativeCaptureRms(handle: Long): Float
+    private external fun nativeDeadlineViolations(handle: Long): Long
 
     companion object {
         init {
@@ -102,4 +119,6 @@ data class EngineStats(
     val underrunFrames: Long = 0,
     /** RMS of the most recent captured block, in [0, 1]. */
     val captureRms: Float = 0f,
+    /** Count of sustained deadline-overrun events (engine too slow). */
+    val deadlineViolations: Long = 0,
 )

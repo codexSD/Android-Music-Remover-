@@ -26,7 +26,9 @@ class SpectrogramProcessor : public AudioProcessor {
 public:
     SpectrogramProcessor(size_t fftSize, size_t hop, std::unique_ptr<Separator> separator);
 
-    void prepare(int sampleRate, int channelCount) override;
+    bool init(int sampleRate, int channelCount, const EngineConfig& config,
+              int& latencySamplesOut) override;
+    EngineCapabilities capabilities() const override;
     void process(float* buffer, size_t frames, int channelCount) override;
     const char* name() const override { return name_.c_str(); }
 

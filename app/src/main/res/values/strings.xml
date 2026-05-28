@@ -9,6 +9,7 @@
     <string name="status_starting">Starting capture…</string>
     <string name="status_running">Capturing audio — vocals isolated.</string>
     <string name="status_running_source">Capturing: %1$s</string>
+    <string name="status_running_engine">Isolating vocals (%1$s)</string>
     <string name="status_stopping">Stopping…</string>
     <string name="status_error">Error: %1$s</string>
     <string name="status_blocked">This app blocks audio capture.</string>
@@ -17,4 +18,12 @@
 
     <string name="notification_channel_name">Audio capture</string>
     <string name="notification_channel_desc">Shown while capturing and processing audio.</string>
+
+    <string name="action_settings">Settings</string>
+    <string name="settings_engine_title">Isolation engine</string>
+    <string name="settings_engine_hint">Changes apply the next time you start capture.</string>
+    <string name="settings_engine_auto">Auto (recommended)</string>
+    <string name="settings_engine_dsp">DSP — center extraction (no model)</string>
+    <string name="settings_engine_ml">ML — neural separation (needs model)</string>
+    <string name="settings_engine_passthrough">Passthrough (no processing)</string>
 </resources>

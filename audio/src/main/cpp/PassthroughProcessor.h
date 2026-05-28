@@ -5,11 +5,19 @@
 
 namespace vocalremover {
 
-// Identity processor used in Phase 1 to validate the end-to-end capture ->
-// output path before any DSP is introduced. Leaves the buffer untouched.
+// Identity processor: validates the end-to-end capture -> output path and serves
+// as the terminal fallback engine. Leaves the buffer untouched.
 class PassthroughProcessor : public AudioProcessor {
 public:
-    void prepare(int /*sampleRate*/, int /*channelCount*/) override {}
+    bool init(int /*sampleRate*/, int /*channelCount*/, const EngineConfig& /*config*/,
+              int& latencySamplesOut) override {
+        latencySamplesOut = 0;
+        return true;
+    }
+
+    EngineCapabilities capabilities() const override {
+        return EngineCapabilities{"passthrough", 0, 0, /*needsStereo=*/false};
+    }
 
     void process(float* /*buffer*/, size_t /*frames*/, int /*channelCount*/) override {
         // Intentionally does nothing: output equals input.

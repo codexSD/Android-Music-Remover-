@@ -26,7 +26,9 @@ SpectrogramProcessor::SpectrogramProcessor(size_t fftSize, size_t hop,
       specIn_(stft_.numBins()),
       specOut_(stft_.numBins()) {}
 
-void SpectrogramProcessor::prepare(int sampleRate, int channelCount) {
+bool SpectrogramProcessor::init(int sampleRate, int channelCount,
+                                const EngineConfig& /*config*/,
+                                int& latencySamplesOut) {
     channelCount_ = channelCount;
     olaNorm_ = stft_.windowOlaNorm();
     primed_ = false;
@@ -40,6 +42,13 @@ void SpectrogramProcessor::prepare(int sampleRate, int channelCount) {
     outFifo_ = std::make_unique<SpscRingBuffer<float>>(cap);
 
     separator_->prepare(sampleRate, stft_.numBins());
+    latencySamplesOut = static_cast<int>(stft_.fftSize());
+    return true;
+}
+
+EngineCapabilities SpectrogramProcessor::capabilities() const {
+    return EngineCapabilities{name_.c_str(), 0, static_cast<int>(stft_.fftSize()),
+                              /*needsStereo=*/false};
 }
 
 void SpectrogramProcessor::analyzeEmit() {

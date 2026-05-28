@@ -43,7 +43,8 @@ std::vector<float> makeStereoSignal(size_t frames) {
 // thread draining the capture ring) and returns the interleaved stereo output.
 std::vector<float> run(SpectrogramProcessor& proc, std::vector<float> stereo,
                        size_t blockFrames) {
-    proc.prepare(48000, 2);
+    int latency = -1;
+    proc.init(48000, 2, vocalremover::EngineConfig{}, latency);
     const size_t totalFrames = stereo.size() / 2;
     for (size_t start = 0; start < totalFrames; start += blockFrames) {
         const size_t n = std::min(blockFrames, totalFrames - start);
@@ -89,6 +90,16 @@ TEST(SpectrogramProcessor, IdentityReconstructsThroughOverlapAdd) {
 TEST(SpectrogramProcessor, ReportsWindowLatency) {
     SpectrogramProcessor proc(256, 64, std::make_unique<IdentitySeparator>());
     CHECK_EQ(proc.latencyFrames(), static_cast<size_t>(256));
+}
+
+TEST(SpectrogramProcessor, InitReportsLatencyAndCapabilities) {
+    SpectrogramProcessor proc(512, 128, std::make_unique<IdentitySeparator>());
+    int latency = -1;
+    CHECK(proc.init(48000, 2, vocalremover::EngineConfig{}, latency));
+    CHECK_EQ(latency, 512);
+    const auto caps = proc.capabilities();
+    CHECK_EQ(caps.requiredChunkFrames, static_cast<size_t>(0));
+    CHECK_EQ(caps.latencySamples, 512);
 }
 
 TEST(SpectrogramProcessor, SeparatorGainIsApplied) {

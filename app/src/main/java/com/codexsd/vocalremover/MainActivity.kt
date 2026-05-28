@@ -65,6 +65,9 @@ class MainActivity : AppCompatActivity() {
         actionButton = findViewById(R.id.action_button)
         statusText = findViewById(R.id.status_text)
         actionButton.setOnClickListener { onActionClicked() }
+        findViewById<android.widget.Button>(R.id.settings_button).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
         render()
     }
 

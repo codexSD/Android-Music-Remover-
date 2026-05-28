@@ -11,7 +11,9 @@ set(ENGINE_SOURCES
     AudioRecordReader.cpp
     OutputStream.cpp
     ProcessingThread.cpp
-    SpectrogramProcessor.cpp)
+    EngineRegistry.cpp
+    SpectrogramProcessor.cpp
+    StereoSpectrogramProcessor.cpp)
 
 # ONNX Runtime is optional: Gradle extracts the AAR's headers and per-ABI
 # libonnxruntime.so into ORT_HOME and passes it here. When present, the ONNX
