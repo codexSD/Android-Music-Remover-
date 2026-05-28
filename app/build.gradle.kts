@@ -29,6 +29,26 @@ android {
         }
     }
 
+    // Release signing is driven by environment variables so the keystore and its
+    // passwords never live in the repo. CI decodes a base64 secret to a file and
+    // sets these; locally, export them before `assembleRelease`. When KEYSTORE_FILE
+    // is unset (e.g. plain debug builds), the release output is left unsigned.
+    val keystoreFile = System.getenv("KEYSTORE_FILE")
+    signingConfigs {
+        create("release") {
+            if (keystoreFile != null) {
+                storeFile = file(keystoreFile)
+                storePassword = System.getenv("KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("KEY_ALIAS")
+                keyPassword = System.getenv("KEY_PASSWORD")
+                // apksigner applies v1/v2/v3 schemes and 4-byte zipalignment.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -37,6 +57,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+            if (keystoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

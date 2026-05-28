@@ -91,11 +91,19 @@ python3 tools/export_bandscnet.py --arch gate --out app/src/main/assets/bandscne
 
 ### APK size
 
-Release uses per-ABI splits and R8. The arm64-v8a APK is ~27 MB, dominated by
+Release uses per-ABI splits and R8. The arm64-v8a APK is ~28 MB, dominated by
 the 19 MB `libonnxruntime.so` from the full `onnxruntime-android` AAR. Hitting
 the **< 20 MB** goal needs an operator-reduced custom ONNX Runtime build (only
 the ops the model uses); the integration is otherwise size-optimized (x86 and
 the unused `libonnxruntime4j_jni.so` are excluded).
+
+### Releases (CI/CD)
+
+GitHub Actions builds and publishes signed, zipaligned APKs:
+`.github/workflows/ci.yml` runs tests + a debug build on every push/PR, and
+`.github/workflows/release.yml` publishes a GitHub Release with per-ABI signed
+APKs when a `v*` tag is pushed. Signing keys are supplied via repository
+secrets — see [docs/release.md](docs/release.md).
 
 ## Tests
 
